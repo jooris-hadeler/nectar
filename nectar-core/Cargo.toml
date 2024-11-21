@@ -1,0 +1,9 @@
+[package]
+name = "nectar-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ariadne = "0.5.0"
+pathdiff = "0.2.2"
+yansi = "1.0.1"
