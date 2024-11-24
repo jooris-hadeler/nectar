@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 nectar-core = { path = "../nectar-core" }
+nectar-lexer = { path = "../nectar-lexer" }
+miette = { version = "7.2.0", features = ["fancy", "textwrap"] }
+thiserror = "2.0.3"
+

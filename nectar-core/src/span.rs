@@ -1,3 +1,5 @@
+use miette::SourceSpan;
+
 use crate::source::SourceId;
 
 /// A [`Span`] represents a section of the content in a [`super::source::Source`].
@@ -29,5 +31,14 @@ impl Span {
     /// Returns whether or not the [`Span`] contains no characters.
     pub const fn is_empty(&self) -> bool {
         self.end < self.start
+    }
+}
+
+impl From<Span> for SourceSpan {
+    fn from(span: Span) -> Self {
+        SourceSpan::new(
+            span.start.into(),
+            span.start.saturating_sub(span.end).max(1),
+        )
     }
 }

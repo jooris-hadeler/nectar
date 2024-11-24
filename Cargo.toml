@@ -1,7 +1,7 @@
 [workspace]
-members = ["nectar", "nectar-core"]
+members = ["nectar", "nectar-core", "nectar-lexer"]
 resolver = "2"
-default-members = ["nectar", "nectar-core"]
+default-members = ["nectar", "nectar-core", "nectar-lexer"]
 
 [profile.release]
 panic = "abort"
