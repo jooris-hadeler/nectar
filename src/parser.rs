@@ -1,16 +1,69 @@
-use std::{iter::Peekable, sync::Arc};
+use std::{collections::HashMap, iter::Peekable, sync::Arc};
 
+use lazy_static::lazy_static;
 use miette::{LabeledSpan, NamedSource, Severity};
 
 use crate::{
     syntax_tree::{
-        ArrayType, BuiltinKind, CompoundStatement, Declaration, Expression, ExpressionKind,
-        FunctionDeclaration, FunctionParameter, Identifier, LetStatement, Module, ReturnStatement,
-        Statement, Type, TypeKind,
+        ArrayType, BinaryExpression, BinaryOperator, BuiltinKind, CompoundStatement, Declaration,
+        Expression, ExpressionKind, FunctionDeclaration, FunctionParameter, Identifier,
+        LetStatement, Module, ReturnStatement, Statement, Type, TypeKind, UnaryExpression,
+        UnaryOperator,
     },
     token::{Token, TokenKind},
     util::SourceSpanExt,
 };
+
+lazy_static! {
+    /// A mapping of token kinds to their corresponding prefix operators, along with their precedence.
+    ///
+    /// The `PREFIX_OPERATORS` map defines how tokens are interpreted as prefix unary operators in expressions.
+    /// Each entry maps a `TokenKind` (e.g., `Minus`, `Not`) to:
+    /// - A `UnaryOperator` that represents the operation.
+    /// - A single precedence value (`u8`), which determines the binding strength of the operator.
+    static ref PREFIX_OPERATORS: HashMap<TokenKind, (UnaryOperator, u8)> = HashMap::from([
+        (TokenKind::Minus, (UnaryOperator::Negate, 20)),
+        (TokenKind::Bang, (UnaryOperator::Not, 18))
+    ]);
+
+    /// A mapping of token kinds to their corresponding binary operators, along with their precedence and associativity.
+    ///
+    /// The `INFIX_OPERATORS` map is used to define how tokens are interpreted as binary operators in expressions.
+    /// Each entry maps a `TokenKind` (e.g., `Plus`, `Minus`) to:
+    /// - A `BinaryOperator` that represents the operation.
+    /// - A pair of precedence levels (`u8, u8`):
+    ///   - The left binding power (LBP) for when the operator is used on the left-hand side of an expression.
+    ///   - The right binding power (RBP) for when the operator is used on the right-hand side of an expression.
+    static ref INFIX_OPERATORS: HashMap<TokenKind, (BinaryOperator, u8, u8)> = HashMap::from([
+        (TokenKind::Assign, (BinaryOperator::Assign, 1, 2)),
+        (TokenKind::KwOr, (BinaryOperator::LogicalOr, 3, 4)),
+        (TokenKind::KwAnd, (BinaryOperator::LogicalAnd, 5, 6)),
+        (TokenKind::Equal, (BinaryOperator::Equal, 7, 8)),
+        (TokenKind::Unequal, (BinaryOperator::Unequal, 7, 8)),
+        (TokenKind::LessThan, (BinaryOperator::LessThan, 9, 10)),
+        (TokenKind::LessEqual, (BinaryOperator::LessEqual, 9, 10)),
+        (TokenKind::GreaterThan, (BinaryOperator::GreaterThan, 9, 10)),
+        (
+            TokenKind::GreaterEqual,
+            (BinaryOperator::GreaterEqual, 9, 10)
+        ),
+        (TokenKind::Pipe, (BinaryOperator::BitwiseOr, 11, 12)),
+        (TokenKind::Ampersand, (BinaryOperator::BitwiseAnd, 13, 14)),
+        (TokenKind::Caret, (BinaryOperator::BitwiseXor, 15, 16)),
+        (TokenKind::Plus, (BinaryOperator::Add, 17, 18)),
+        (TokenKind::Minus, (BinaryOperator::Subtract, 17, 18)),
+        (TokenKind::Asterisk, (BinaryOperator::Multiply, 19, 20)),
+        (TokenKind::Slash, (BinaryOperator::Divide, 19, 20)),
+    ]);
+
+    /// A mapping of token kinds to their corresponding postfix operators, along with their precedence.
+    ///
+    /// The `POSTFIX_OPERATORS` map defines how tokens are interpreted as postfix unary operators in expressions.
+    /// Each entry maps a `TokenKind` (e.g., `Increment`, `Decrement`) to:
+    /// - A `UnaryOperator` that represents the operation.
+    /// - A single precedence value (`u8`), which determines the strength of binding for the operator.
+    static ref POSTFIX_OPERATORS: HashMap<TokenKind, (UnaryOperator, u8)> = HashMap::from([]);
+}
 
 /// A parser that processes a stream of tokens into a higher-level abstract syntax structure.
 ///
@@ -413,7 +466,6 @@ impl<I: Iterator<Item = Token>> Parser<I> {
     }
 
     fn parse_statement(&mut self) -> miette::Result<Statement> {
-        // We can safely unwrap here since this function is only called in `parse`.
         let Some(&Token { kind, .. }) = self.peek() else {
             let report = miette::miette!(
                 severity = Severity::Error,
@@ -531,15 +583,193 @@ impl<I: Iterator<Item = Token>> Parser<I> {
     /// - `Ok(Expression)` - If the expression was successfully parsed.
     /// - `Err(miette::Report)` - If something went wrong during parsing.
     fn parse_expression(&mut self) -> miette::Result<Expression> {
+        self.parse_expression_with_binding_power(0)
+    }
+
+    /// Parses an expression with respect to a given minimum binding power.
+    ///
+    /// This function is used to parse complex expressions by recursively resolving
+    /// prefix, postfix, and infix operators according to their precedence and associativity.
+    ///
+    /// # Parameters
+    ///
+    /// - `min_binding_power` (`u8`): The minimum binding power for the current parsing context,
+    ///   ensuring that operators with lower precedence are not included in the current expression.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Expression)` - The parsed expression.
+    /// * `Err(miette::Report)` - If an unexpected token or syntax error is encountered during parsing.
+    fn parse_expression_with_binding_power(
+        &mut self,
+        min_binding_power: u8,
+    ) -> miette::Result<Expression> {
+        let mut left = self.parse_atom_expression()?;
+
+        loop {
+            let Some(&Token { kind, span, .. }) = self.peek() else {
+                break;
+            };
+
+            if let Some(&(op, left_binding_power)) = POSTFIX_OPERATORS.get(&kind) {
+                if left_binding_power < min_binding_power {
+                    break;
+                }
+
+                // Skip operator token.
+                self.next();
+
+                let span = left.span.join(span);
+                let unary_expression = UnaryExpression {
+                    expr: Box::new(left),
+                    op,
+                };
+
+                left = Expression {
+                    kind: ExpressionKind::Unary(unary_expression),
+                    span,
+                };
+
+                continue;
+            }
+
+            if let Some(&(op, left_binding_power, right_binding_power)) = INFIX_OPERATORS.get(&kind)
+            {
+                if left_binding_power < min_binding_power {
+                    break;
+                }
+
+                // Skip operator token.
+                self.next();
+
+                let right = self.parse_expression_with_binding_power(right_binding_power)?;
+
+                let span = left.span.join(right.span);
+                let binary_expression = BinaryExpression {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                };
+
+                left = Expression {
+                    kind: ExpressionKind::Binary(binary_expression),
+                    span,
+                };
+
+                continue;
+            }
+
+            break;
+        }
+
+        Ok(left)
+    }
+
+    /// Parses the simplest form of an expression, known as an "atomic" expression.
+    ///
+    /// This function handles parsing of basic expressions such as literals, identifiers, or
+    /// expressions prefixed by a unary operator. If a token does not correspond to a valid atomic
+    /// expression, an error is returned.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Expression)` - The parsed atomic expression.
+    /// * `Err(miette::Report)` - If an unexpected token or syntax error is encountered.
+    fn parse_atom_expression(&mut self) -> miette::Result<Expression> {
+        let Some(&Token { kind, span, .. }) = self.peek() else {
+            let report = miette::miette!(
+                severity = Severity::Error,
+                code = "parser::unexpected_eof",
+                help = "Did you forget a closing `}`?",
+                "Unexpected end of file."
+            );
+
+            return Err(report.with_source_code(self.source.clone()));
+        };
+
+        if let Some(&(op, right_binding_power)) = PREFIX_OPERATORS.get(&kind) {
+            // Skip prefix operator.
+            self.next();
+
+            let expr = self.parse_expression_with_binding_power(right_binding_power)?;
+
+            let span = span.join(expr.span);
+            let unary_expression = UnaryExpression {
+                expr: Box::new(expr),
+                op,
+            };
+
+            return Ok(Expression {
+                kind: ExpressionKind::Unary(unary_expression),
+                span,
+            });
+        }
+
+        match kind {
+            TokenKind::Integer => self.parse_integer_expression(),
+            TokenKind::Identifier => self.parse_identifier_expression(),
+
+            _ => {
+                let labeled_span = LabeledSpan::new_primary_with_span(
+                    Some("This token was unexpected.".to_string()),
+                    span,
+                );
+
+                let report = miette::miette!(
+                    severity = Severity::Error,
+                    code = "parser::unexpected_token",
+                    help = "Expected an `integer` or `identifier`.",
+                    labels = vec![labeled_span],
+                    "Unexpected token found in token stream."
+                );
+
+                Err(report.with_source_code(self.source.clone()))
+            }
+        }
+    }
+
+    /// Parses an identifier as an expression.
+    ///
+    /// This function expects an identifier token and converts it into an `Identifier` expression.
+    /// If the current token is not an identifier, an error is returned.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Expression)` - An `Expression` representing the parsed identifier.
+    /// * `Err(miette::Report)` - If the expected identifier token is not found.
+    fn parse_identifier_expression(&mut self) -> miette::Result<Expression> {
+        let identifier_token = self.expect(TokenKind::Identifier)?;
+        let identifier = Identifier {
+            name: identifier_token.text.unwrap(),
+            span: identifier_token.span,
+        };
+
+        Ok(Expression {
+            kind: ExpressionKind::Identifier(identifier),
+            span: identifier_token.span,
+        })
+    }
+
+    /// Parses an integer literal as an expression.
+    ///
+    /// This function processes integer tokens and supports different radices (e.g., decimal, binary,
+    /// octal, hexadecimal). It validates the literal and converts it into an `Integer` expression.
+    /// If the integer is invalid or out of bounds, an error is returned.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Expression)` - An `Expression` representing the parsed integer literal.
+    /// * `Err(miette::Report)` - If the integer is invalid or not within 64-bit bounds.
+    fn parse_integer_expression(&mut self) -> miette::Result<Expression> {
         let int_token = self.expect(TokenKind::Integer)?;
         let text = int_token.text.unwrap();
 
-        let (radix, text) = if text.starts_with("0x") {
-            (16, &text[2..])
-        } else if text.starts_with("0o") {
-            (8, &text[2..])
-        } else if text.starts_with("0b") {
-            (2, &text[2..])
+        let (radix, text) = if let Some(stripped) = text.strip_prefix("0x") {
+            (16, stripped)
+        } else if let Some(stripped) = text.strip_prefix("0o") {
+            (8, stripped)
+        } else if let Some(stripped) = text.strip_prefix("0b") {
+            (2, stripped)
         } else {
             (10, text.as_str())
         };

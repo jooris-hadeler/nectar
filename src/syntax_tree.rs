@@ -179,4 +179,92 @@ pub struct Expression {
 pub enum ExpressionKind {
     /// Represents an integer literal with its value.
     Integer(u64),
+    /// Represents an identifier literal.
+    Identifier(Identifier),
+    /// Represents a binary expression.
+    Binary(BinaryExpression),
+    /// Represents a unary expression.
+    Unary(UnaryExpression),
+}
+
+/// Represents a binary expression in the syntax tree.
+///
+/// A binary expression consists of two sub-expressions (`left` and `right`)
+/// and a binary operator (`op`) that connects them. This structure is used to
+/// represent expressions like `a + b`, `x * y`, or `p && q`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinaryExpression {
+    /// The left-hand side of the binary expression.
+    pub left: Box<Expression>,
+    /// The binary operator (e.g., `+`, `-`, `*`, `/`, etc.).
+    pub op: BinaryOperator,
+    /// The right-hand side of the binary expression.
+    pub right: Box<Expression>,
+}
+
+/// Represents a binary operator in an expression.
+///
+/// This enumeration defines the various binary operators that can be used in expressions,
+/// including arithmetic operations and bitwise operations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BinaryOperator {
+    /// The assign operator (`=`), used to assign values.
+    Assign,
+    /// The addition operator (`+`), used to sum two values.
+    Add,
+    /// The subtraction operator (`-`), used to compute the difference between two values.
+    Subtract,
+    /// The multiplication operator (`*`), used to compute the product of two values.
+    Multiply,
+    /// The division operator (`/`), used to compute the quotient of two values.
+    Divide,
+
+    /// The bitwise AND operator (`&`), performs a bitwise AND operation on two values.
+    BitwiseAnd,
+    /// The bitwise OR operator (`|`), performs a bitwise OR operation on two values.
+    BitwiseOr,
+    /// The bitwise XOR operator (`^`), performs a bitwise XOR operation on two values.
+    BitwiseXor,
+
+    /// The equality operator (`==`), used to check if two values are equal.
+    Equal,
+    /// The inequality operator (`!=`), used to check if two values are not equal.
+    Unequal,
+    /// The less-than operator (`<`), used to check if the left value is less than the right value.
+    LessThan,
+    /// The less-than-or-equal-to operator (`<=`), used to check if the left value is less than or equal to the right value.
+    LessEqual,
+    /// The greater-than operator (`>`), used to check if the left value is greater than the right value.
+    GreaterThan,
+    /// The greater-than-or-equal-to operator (`>=`), used to check if the left value is greater than or equal to the right value.
+    GreaterEqual,
+
+    /// The logical or operator (`or`), performs a logical OR operation on two values.
+    LogicalOr,
+    /// The logical and operator (`and`), performs a logical AND operation on two values.
+    LogicalAnd,
+}
+
+/// Represents a unary expression in the syntax tree.
+///
+/// A unary expression consists of a single sub-expression (`expr`) and a unary operator (`op`)
+/// that acts upon it. This structure is used to represent expressions like `-x` or `!flag`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnaryExpression {
+    /// The operand of the unary expression.
+    pub expr: Box<Expression>,
+    /// The unary operator (e.g., negation `-`, logical NOT `!`).
+    pub op: UnaryOperator,
+}
+
+/// Represents a unary operator in an expression.
+///
+/// This enumeration defines the various unary operators that can be applied to an operand,
+/// such as negation or logical NOT.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UnaryOperator {
+    /// Represents the arithmetic negation operator (`-`).
+    Negate,
+    /// Represents the logical NOT operator (`!`).
+    Not,
 }

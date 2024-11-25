@@ -134,6 +134,8 @@ impl<'a> Lexer<'a> {
             "elif" => TokenKind::KwElif,
             "let" => TokenKind::KwLet,
             "return" => TokenKind::KwReturn,
+            "and" => TokenKind::KwAnd,
+            "or" => TokenKind::KwOr,
             "true" | "false" => TokenKind::Boolean,
             _ => TokenKind::Identifier,
         };
@@ -170,14 +172,14 @@ impl<'a> Lexer<'a> {
         let length = buffer.chars().count();
         let span = SourceSpan::new(start, length);
 
-        let is_valid_digit = if buffer.starts_with("0x") {
-            |ch| matches!(ch, '0'..='9' | 'a'..='f' | 'A'..='F')
+        let is_valid_digit: fn(char) -> bool = if buffer.starts_with("0x") {
+            |ch| ch.is_ascii_hexdigit()
         } else if buffer.starts_with("0o") {
             |ch| matches!(ch, '0'..='7')
         } else if buffer.starts_with("0b") {
             |ch| matches!(ch, '0' | '1')
         } else {
-            |ch| matches!(ch, '0'..='9')
+            |ch| ch.is_ascii_digit()
         };
 
         if !buffer.chars().skip(2).all(is_valid_digit) {

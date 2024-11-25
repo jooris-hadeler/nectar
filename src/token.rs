@@ -16,7 +16,7 @@ pub struct Token {
 }
 
 /// Represents all possible types of tokens in the language.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     /// Names of variables, functions, etc.
     Identifier,
@@ -39,6 +39,10 @@ pub enum TokenKind {
     KwLet,
     /// Return statement (`return`)
     KwReturn,
+    /// Logical and (`and`)
+    KwAnd,
+    /// Logical or (`or`)
+    KwOr,
 
     /// Parentheses (`(`)
     LeftParen,
