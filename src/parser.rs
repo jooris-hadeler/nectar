@@ -4,8 +4,9 @@ use miette::{LabeledSpan, NamedSource, Severity};
 
 use crate::{
     syntax_tree::{
-        ArrayType, BuiltinKind, Declaration, Expression, ExpressionKind, FunctionDeclaration,
-        FunctionParameter, Identifier, Module, Type, TypeKind,
+        ArrayType, BuiltinKind, CompoundStatement, Declaration, Expression, ExpressionKind,
+        FunctionDeclaration, FunctionParameter, Identifier, LetStatement, Module, ReturnStatement,
+        Statement, Type, TypeKind,
     },
     token::{Token, TokenKind},
     util::SourceSpanExt,
@@ -316,7 +317,7 @@ impl<I: Iterator<Item = Token>> Parser<I> {
     ///
     /// # Returns
     /// - `Ok(Type)` - The parsed type with its kind and source span.
-    /// - `Err` - If there's a parsing error.
+    /// - `Err(miette::Report)` - If there's a parsing error.
     fn parse_type(&mut self) -> miette::Result<Type> {
         if self.is(TokenKind::Asterisk) {
             self.parse_pointer_type()
@@ -331,7 +332,7 @@ impl<I: Iterator<Item = Token>> Parser<I> {
     ///
     /// # Returns
     /// - `Ok(Type)` - A pointer type wrapping the parsed inner type.
-    /// - `Err` - If the asterisk is missing or inner type parsing fails.
+    /// - `Err(miette::Report)` - If the asterisk is missing or inner type parsing fails.
     fn parse_pointer_type(&mut self) -> miette::Result<Type> {
         let asterisk_token = self.expect(TokenKind::Asterisk)?;
 
@@ -349,7 +350,7 @@ impl<I: Iterator<Item = Token>> Parser<I> {
     ///
     /// # Returns
     /// - `Ok(Type)` - An array type with the specified inner type and size.
-    /// - `Err` - If the syntax is invalid or parsing fails.
+    /// - `Err(miette::Report)` - If the syntax is invalid or parsing fails.
     fn parse_array_type(&mut self) -> miette::Result<Type> {
         let left_bracket_token = self.expect(TokenKind::LeftBracket)?;
 
@@ -380,7 +381,7 @@ impl<I: Iterator<Item = Token>> Parser<I> {
     ///
     /// # Returns
     /// - `Ok(Type)` - The parsed builtin or named type.
-    /// - `Err` - If the identifier is missing or invalid.
+    /// - `Err(miette::Report)` - If the identifier is missing or invalid.
     fn parse_named_type(&mut self) -> miette::Result<Type> {
         let name_token = self.expect(TokenKind::Identifier)?;
         let name = name_token.text.unwrap();
@@ -411,23 +412,124 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         })
     }
 
+    fn parse_statement(&mut self) -> miette::Result<Statement> {
+        // We can safely unwrap here since this function is only called in `parse`.
+        let Some(&Token { kind, .. }) = self.peek() else {
+            let report = miette::miette!(
+                severity = Severity::Error,
+                code = "parser::unexpected_eof",
+                help = "Did you forget a closing `}`?",
+                "Unexpected end of file."
+            );
+
+            return Err(report.with_source_code(self.source.clone()));
+        };
+
+        match kind {
+            TokenKind::KwLet => self.parse_let_statement().map(Statement::Let),
+            TokenKind::KwReturn => self.parse_return_statement().map(Statement::Return),
+            TokenKind::LeftBrace => self.parse_compound_statement().map(Statement::Compound),
+
+            // Otherwise try parsing an expression statement.
+            _ => self.parse_expression_statement().map(Statement::Expression),
+        }
+    }
+
+    /// Parses a `let` statement from the input and returns a `LetStatement` structure.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(LetStatement)` - If the `let` statement is successfully parsed.
+    /// * `Err` - If any part of the statement is malformed or missing.
+    fn parse_let_statement(&mut self) -> miette::Result<LetStatement> {
+        self.expect(TokenKind::KwLet)?;
+
+        let name_token = self.expect(TokenKind::Identifier)?;
+        let name = Identifier {
+            name: name_token.text.unwrap(),
+            span: name_token.span,
+        };
+
+        let type_ = if self.is(TokenKind::Colon) {
+            self.next();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.expect(TokenKind::Assign)?;
+
+        let value = self.parse_expression()?;
+
+        self.expect(TokenKind::SemiColon)?;
+
+        Ok(LetStatement { name, type_, value })
+    }
+
+    /// Parses a `return` statement from the input.
+    ///
+    /// This function handles the `return` keyword, an optional return value expression,
+    /// and ensures the statement ends with a semicolon (`;`).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ReturnStatement)` - If the `return` statement is successfully parsed, including an optional value.
+    /// * `Err` - If the `return` keyword, optional expression, or terminating semicolon is missing or invalid.
+    fn parse_return_statement(&mut self) -> miette::Result<ReturnStatement> {
+        let return_token = self.expect(TokenKind::KwReturn)?;
+        let span = return_token.span;
+
+        let value = if !self.is(TokenKind::SemiColon) {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+
+        self.expect(TokenKind::SemiColon)?;
+
+        Ok(ReturnStatement { value, span })
+    }
+
     /// Parses a compound statement (code block) surrounded by curly braces.
     ///
     /// # Returns
-    /// - `Ok(Statement)` - If the compound statement was successfully parsed.
-    /// - `Err` - If either the opening or closing brace is missing.
-    fn parse_compound_statement(&mut self) -> miette::Result<()> {
+    /// - `Ok(CompoundStatement)` - If the compound statement was successfully parsed.
+    /// - `Err(miette::Report)` - If either the opening or closing brace is missing.
+    fn parse_compound_statement(&mut self) -> miette::Result<CompoundStatement> {
+        let mut statements = Vec::new();
+
         self.expect(TokenKind::LeftBrace)?;
+
+        while !self.is(TokenKind::RightBrace) {
+            statements.push(self.parse_statement()?);
+        }
+
         self.expect(TokenKind::RightBrace)?;
 
-        Ok(())
+        Ok(CompoundStatement { statements })
+    }
+
+    /// Parses an expression statement from the input and ensures it is followed by a semicolon.
+    ///
+    /// This function attempts to parse an expression using the `parse_expression` method.
+    /// After successfully parsing the expression, it verifies that the next token is a semicolon (`;`).
+    /// If parsing the expression or expecting the semicolon fails, an error is returned.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Expression)` - If the expression is successfully parsed and the semicolon is present.
+    /// * `Err` - If parsing the expression fails or the expected semicolon is missing.
+    fn parse_expression_statement(&mut self) -> miette::Result<Expression> {
+        let expression = self.parse_expression()?;
+        self.expect(TokenKind::SemiColon)?;
+        Ok(expression)
     }
 
     /// Parses an expression from the token stream.
     ///
     /// # Returns
     /// - `Ok(Expression)` - If the expression was successfully parsed.
-    /// - `Err` - If something went wrong during parsing.
+    /// - `Err(miette::Report)` - If something went wrong during parsing.
     fn parse_expression(&mut self) -> miette::Result<Expression> {
         let int_token = self.expect(TokenKind::Integer)?;
         let text = int_token.text.unwrap();

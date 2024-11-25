@@ -5,7 +5,7 @@ use miette::SourceSpan;
 /// A module is a top-level construct that typically encapsulates a collection
 /// of related declarations, such as functions, variables, types, or other
 /// structural components of the language.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     /// The name of the module.
     pub name: String,
@@ -18,7 +18,7 @@ pub struct Module {
 /// Identifiers are used to name various entities such as variables, functions, or
 /// parameters. They include the name of the entity and the span of source code where
 /// the identifier is located.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Identifier {
     /// The textual name of the identifier.
     pub name: String,
@@ -31,7 +31,7 @@ pub struct Identifier {
 /// Declarations define the various entities within a module, such as
 /// functions, variables, or types. This enum can be expanded to include
 /// specific variants for each type of declaration.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Declaration {
     /// A function declaration.
     ///
@@ -46,7 +46,7 @@ pub enum Declaration {
 /// A function declaration defines a named function, its parameters, return type,
 /// and optionally its body. Functions may be declared without a body in cases such
 /// as interfaces or abstract definitions.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDeclaration {
     /// The name of the function as an identifier.
     pub name: Identifier,
@@ -55,14 +55,14 @@ pub struct FunctionDeclaration {
     /// The return type of the function, if specified.
     pub return_type: Option<Type>,
     /// The body of the function, if defined.
-    pub body: Option<()>,
+    pub body: Option<CompoundStatement>,
 }
 
 /// Represents a single parameter in a function declaration.
 ///
 /// Function parameters define the inputs that a function accepts. Each parameter
 /// has a name and optionally a type.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionParameter {
     /// The name of the parameter as an identifier.
     pub name: Identifier,
@@ -71,7 +71,7 @@ pub struct FunctionParameter {
 }
 
 /// Represents a type in the language, containing the specific type variant and its location in source code.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Type {
     /// The specific kind/variant of this type.
     pub kind: TypeKind,
@@ -80,7 +80,7 @@ pub struct Type {
 }
 
 /// Represents all possible type variants in the language.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeKind {
     /// A built-in primitive type like integers or booleans.
     Builtin(BuiltinKind),
@@ -93,7 +93,7 @@ pub enum TypeKind {
 }
 
 /// Represents all built-in primitive types supported by the language.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BuiltinKind {
     /// 8-bit signed integer
     I8,
@@ -116,7 +116,7 @@ pub enum BuiltinKind {
 }
 
 /// Represents a fixed-size array type with a specific element type.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ArrayType {
     /// The type of elements stored in the array.
     pub inner_type: Box<Type>,
@@ -124,9 +124,49 @@ pub struct ArrayType {
     pub size: Expression,
 }
 
+/// Represents different types of statements in the language
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    /// Represents a variable declaration (let) statement
+    Let(LetStatement),
+    /// Represents a return statement
+    Return(ReturnStatement),
+    /// Represents a compound statement containing multiple statements
+    Compound(CompoundStatement),
+    /// Represents an expression statement
+    Expression(Expression),
+}
+
+/// Represents a variable declaration statement with an optional type and a value
+#[derive(Debug, Clone, PartialEq)]
+pub struct LetStatement {
+    /// The name of the variable being declared
+    pub name: Identifier,
+    /// Optional type annotation for the variable
+    pub type_: Option<Type>,
+    /// The initial value assigned to the variable
+    pub value: Expression,
+}
+
+/// Represents a return statement that may or may not return a value
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReturnStatement {
+    /// Optional expression to be returned
+    pub value: Option<Expression>,
+    /// The span in the source code where this statement is located.
+    pub span: SourceSpan,
+}
+
+/// Represents a group of statements that can be executed sequentially
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompoundStatement {
+    /// A vector of statements to be executed in order
+    pub statements: Vec<Statement>,
+}
+
 /// Represents an expression in a source code, consisting of its type (`kind`)
 /// and the span of source code it covers (`span`).
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Expression {
     /// The specific kind of expression, such as an integer literal.
     pub kind: ExpressionKind,
@@ -135,7 +175,7 @@ pub struct Expression {
 }
 
 /// Enum representing the different kinds of expressions that can occur in the source code.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     /// Represents an integer literal with its value.
     Integer(u64),
