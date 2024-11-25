@@ -129,6 +129,8 @@ pub struct ArrayType {
 pub enum Statement {
     /// Represents a variable declaration (let) statement
     Let(LetStatement),
+    /// Represents an if statement.
+    If(IfStatement),
     /// Represents a return statement
     Return(ReturnStatement),
     /// Represents a compound statement containing multiple statements
@@ -146,6 +148,20 @@ pub struct LetStatement {
     pub type_: Option<Type>,
     /// The initial value assigned to the variable
     pub value: Expression,
+}
+
+/// Represents an `if` statement for conditional control flow.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfStatement {
+    /// The condition to evaluate for the `if` statement.
+    pub condition: Expression,
+    /// The block of statements to execute if the condition evaluates to true.
+    pub consequence: Box<CompoundStatement>,
+    /// An optional block of statements to execute if the condition evaluates to false.
+    ///
+    /// We use [Statement] here since the alternative could be a [CompoundStatement] or
+    /// an [IfStatement].
+    pub alternative: Option<Box<Statement>>,
 }
 
 /// Represents a return statement that may or may not return a value
@@ -185,6 +201,8 @@ pub enum ExpressionKind {
     Binary(BinaryExpression),
     /// Represents a unary expression.
     Unary(UnaryExpression),
+    /// Represents a function call expression.
+    Call(CallExpression),
 }
 
 /// Represents a binary expression in the syntax tree.
@@ -267,4 +285,17 @@ pub enum UnaryOperator {
     Negate,
     /// Represents the logical NOT operator (`!`).
     Not,
+}
+
+/// Represents a function call expression.
+///
+/// A `CallExpression` consists of a function being invoked and a list of arguments
+/// passed to the function.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallExpression {
+    /// The expression representing the function being called.
+    /// This can be an identifier, a member access, or any valid callable expression.
+    pub function: Box<Expression>,
+    /// A list of expressions representing the arguments passed to the function during the call.
+    pub arguments: Vec<Expression>,
 }

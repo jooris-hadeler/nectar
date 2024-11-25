@@ -5,10 +5,10 @@ use miette::{LabeledSpan, NamedSource, Severity};
 
 use crate::{
     syntax_tree::{
-        ArrayType, BinaryExpression, BinaryOperator, BuiltinKind, CompoundStatement, Declaration,
-        Expression, ExpressionKind, FunctionDeclaration, FunctionParameter, Identifier,
-        LetStatement, Module, ReturnStatement, Statement, Type, TypeKind, UnaryExpression,
-        UnaryOperator,
+        ArrayType, BinaryExpression, BinaryOperator, BuiltinKind, CallExpression,
+        CompoundStatement, Declaration, Expression, ExpressionKind, FunctionDeclaration,
+        FunctionParameter, Identifier, IfStatement, LetStatement, Module, ReturnStatement,
+        Statement, Type, TypeKind, UnaryExpression, UnaryOperator,
     },
     token::{Token, TokenKind},
     util::SourceSpanExt,
@@ -35,7 +35,7 @@ lazy_static! {
     ///   - The left binding power (LBP) for when the operator is used on the left-hand side of an expression.
     ///   - The right binding power (RBP) for when the operator is used on the right-hand side of an expression.
     static ref INFIX_OPERATORS: HashMap<TokenKind, (BinaryOperator, u8, u8)> = HashMap::from([
-        (TokenKind::Assign, (BinaryOperator::Assign, 1, 2)),
+        (TokenKind::Assign, (BinaryOperator::Assign, 2, 1)),
         (TokenKind::KwOr, (BinaryOperator::LogicalOr, 3, 4)),
         (TokenKind::KwAnd, (BinaryOperator::LogicalAnd, 5, 6)),
         (TokenKind::Equal, (BinaryOperator::Equal, 7, 8)),
@@ -62,7 +62,10 @@ lazy_static! {
     /// Each entry maps a `TokenKind` (e.g., `Increment`, `Decrement`) to:
     /// - A `UnaryOperator` that represents the operation.
     /// - A single precedence value (`u8`), which determines the strength of binding for the operator.
-    static ref POSTFIX_OPERATORS: HashMap<TokenKind, (UnaryOperator, u8)> = HashMap::from([]);
+    static ref POSTFIX_OPERATORS: HashMap<TokenKind, (UnaryOperator, u8)> = HashMap::from([
+        // Use Negate as a placeholder operator for Call expressions.
+        (TokenKind::LeftParen, (UnaryOperator::Negate, 32))
+    ]);
 }
 
 /// A parser that processes a stream of tokens into a higher-level abstract syntax structure.
@@ -465,6 +468,16 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         })
     }
 
+    /// Parses a statement from the current token stream.
+    ///
+    /// This function identifies and parses different types of statements based on the
+    /// current token, including `let` statements, `return` statements, compound statements,
+    /// and expression statements. If the token stream ends unexpectedly, an error is returned.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Statement)` - The parsed statement, wrapped in a [`Statement`] enum variant.
+    /// * `Err(miette::Report)` - If an unexpected token or syntax error is encountered.
     fn parse_statement(&mut self) -> miette::Result<Statement> {
         let Some(&Token { kind, .. }) = self.peek() else {
             let report = miette::miette!(
@@ -478,6 +491,7 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         };
 
         match kind {
+            TokenKind::KwIf => self.parse_if_statement(false).map(Statement::If),
             TokenKind::KwLet => self.parse_let_statement().map(Statement::Let),
             TokenKind::KwReturn => self.parse_return_statement().map(Statement::Return),
             TokenKind::LeftBrace => self.parse_compound_statement().map(Statement::Compound),
@@ -485,6 +499,52 @@ impl<I: Iterator<Item = Token>> Parser<I> {
             // Otherwise try parsing an expression statement.
             _ => self.parse_expression_statement().map(Statement::Expression),
         }
+    }
+
+    /// Parses an `if` or `elif` statement from the current token stream.
+    ///
+    /// This function handles the parsing of conditional control flow statements, including
+    /// the main `if` statement, `elif` branches, and the optional `else` block.
+    /// It recursively parses nested `elif` branches as [`IfStatement`] instances.
+    ///
+    /// # Parameters
+    ///
+    /// - `expect_elif_token` (`bool`): Indicates whether the function expects the current token
+    ///   to be `elif`. This is used to differentiate between an initial `if` statement and
+    ///   subsequent `elif` branches.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(IfStatement)` - The parsed `IfStatement` representing the conditional control flow.
+    /// * `Err(miette::Report)` - If a syntax error or unexpected token is encountered during parsing.
+    fn parse_if_statement(&mut self, expect_elif_token: bool) -> miette::Result<IfStatement> {
+        if expect_elif_token {
+            self.expect(TokenKind::KwElif)?;
+        } else {
+            self.expect(TokenKind::KwIf)?;
+        }
+
+        let condition = self.parse_expression()?;
+
+        let consequence = self.parse_compound_statement()?;
+
+        let alternative = if self.is(TokenKind::KwElif) {
+            Some(Statement::If(self.parse_if_statement(true)?))
+        } else if self.is(TokenKind::KwElse) {
+            self.next();
+            Some(Statement::Compound(self.parse_compound_statement()?))
+        } else {
+            None
+        };
+
+        let consequence = Box::new(consequence);
+        let alternative = alternative.map(Box::new);
+
+        Ok(IfStatement {
+            condition,
+            consequence,
+            alternative,
+        })
     }
 
     /// Parses a `let` statement from the input and returns a `LetStatement` structure.
@@ -619,15 +679,31 @@ impl<I: Iterator<Item = Token>> Parser<I> {
                 // Skip operator token.
                 self.next();
 
-                let span = left.span.join(span);
-                let unary_expression = UnaryExpression {
-                    expr: Box::new(left),
-                    op,
-                };
+                left = if kind == TokenKind::LeftParen {
+                    let arguments = self.parse_call_arguments()?;
+                    let right_paren_token = self.expect(TokenKind::RightParen)?;
 
-                left = Expression {
-                    kind: ExpressionKind::Unary(unary_expression),
-                    span,
+                    let span = left.span.join(right_paren_token.span);
+                    let call_expression = CallExpression {
+                        function: Box::new(left),
+                        arguments,
+                    };
+
+                    Expression {
+                        kind: ExpressionKind::Call(call_expression),
+                        span,
+                    }
+                } else {
+                    let span = left.span.join(span);
+                    let unary_expression = UnaryExpression {
+                        expr: Box::new(left),
+                        op,
+                    };
+
+                    Expression {
+                        kind: ExpressionKind::Unary(unary_expression),
+                        span,
+                    }
                 };
 
                 continue;
@@ -663,6 +739,29 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         }
 
         Ok(left)
+    }
+
+    /// Parses the arguments of a function call.
+    ///
+    /// This function processes the comma-separated list of arguments inside a function call's parentheses.
+    /// Each argument is parsed as an [`Expression`]. The parsing continues until a `RightParen` token is encountered.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Expression>)` - A vector of parsed expressions representing the function call arguments.
+    /// * `Err(miette::Report)` - If a syntax error or unexpected token is encountered during parsing.
+    fn parse_call_arguments(&mut self) -> miette::Result<Vec<Expression>> {
+        let mut arguments = Vec::new();
+
+        while !self.is(TokenKind::RightParen) {
+            if !arguments.is_empty() {
+                self.expect(TokenKind::Comma)?;
+            }
+
+            arguments.push(self.parse_expression()?);
+        }
+
+        Ok(arguments)
     }
 
     /// Parses the simplest form of an expression, known as an "atomic" expression.
@@ -708,6 +807,15 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         match kind {
             TokenKind::Integer => self.parse_integer_expression(),
             TokenKind::Identifier => self.parse_identifier_expression(),
+            TokenKind::LeftParen => {
+                let left_paren_token = self.next().unwrap();
+                let mut expr = self.parse_expression()?;
+
+                let right_paren_token = self.expect(TokenKind::RightParen)?;
+                expr.span = left_paren_token.span.join(right_paren_token.span);
+
+                Ok(expr)
+            }
 
             _ => {
                 let labeled_span = LabeledSpan::new_primary_with_span(

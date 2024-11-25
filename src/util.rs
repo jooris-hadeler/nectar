@@ -30,7 +30,17 @@ pub fn collect_results<S: Debug, E: Debug, I: Iterator<Item = Result<S, E>>>(
     }
 }
 
+/// A trait that extends functionality for types representing source spans.
 pub trait SourceSpanExt {
+    /// Combines two source spans into a single span that encompasses both.
+    ///
+    /// # Parameters
+    /// - `self`: The first source span.
+    /// - `other`: The second source span to join with the first.
+    ///
+    /// # Returns
+    /// A new source span that starts at the beginning of `self` and ends at the
+    /// furthest extent of `other`.
     fn join(self, other: Self) -> Self;
 }
 
