@@ -1,8 +1,9 @@
-use std::{env, fs, process::exit, sync::Arc};
+use std::{env, fs, io::stdout, process::exit, sync::Arc};
 
 use lexer::Lexer;
 use miette::{NamedSource, Severity};
 use parser::Parser;
+use syntax_tree::visualize::SyntaxTreeVisualizer;
 
 mod lexer;
 mod parser;
@@ -46,5 +47,8 @@ fn main() {
         }
     };
 
-    println!("{syntax_tree:#?}")
+    let mut stdout = stdout();
+    let mut stv = SyntaxTreeVisualizer::new(&mut stdout);
+    stv.write(&syntax_tree)
+        .expect("Failed to write SyntaxTree.");
 }

@@ -1,5 +1,7 @@
 use miette::SourceSpan;
 
+pub mod visualize;
+
 /// Represents a module in the source code.
 ///
 /// A module is a top-level construct that typically encapsulates a collection
