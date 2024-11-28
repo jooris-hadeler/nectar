@@ -807,6 +807,7 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         match kind {
             TokenKind::Integer => self.parse_integer_expression(),
             TokenKind::Identifier => self.parse_identifier_expression(),
+            TokenKind::String => self.parse_string_expression(),
             TokenKind::LeftParen => {
                 let left_paren_token = self.next().unwrap();
                 let mut expr = self.parse_expression()?;
@@ -907,6 +908,26 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         Ok(Expression {
             kind: ExpressionKind::Integer(value),
             span: int_token.span,
+        })
+    }
+
+    /// Parses a string token from the input and constructs a `String` expression.
+    ///
+    /// This function expects the current token to be of kind `TokenKind::String`, retrieves its textual value,
+    /// and wraps it in an `Expression` of kind `ExpressionKind::String`. The resulting `Expression` also includes
+    /// the span information from the token for tracking its position in the source.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Expression)` - An `Expression` representing the parsed string literal.
+    /// * `Err(miette::Report)` - If the expected string token is not found.
+    fn parse_string_expression(&mut self) -> miette::Result<Expression> {
+        let string_token = self.expect(TokenKind::String)?;
+        let text = string_token.text.unwrap();
+
+        Ok(Expression {
+            kind: ExpressionKind::String(text),
+            span: string_token.span,
         })
     }
 }

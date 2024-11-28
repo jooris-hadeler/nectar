@@ -336,6 +336,9 @@ impl<'a, W: Write> SyntaxTreeVisualizer<'a, W> {
             ExpressionKind::Integer(value) => {
                 self.write_node(format!("Integer: {value}"), Some(parent_id))?;
             }
+            ExpressionKind::String(value) => {
+                self.write_node(format!("String: \\\"{value}\\\""), Some(parent_id))?;
+            }
             ExpressionKind::Identifier(identifier) => {
                 self.write_node(format!("Identifier: {}", identifier.name), Some(parent_id))?;
             }

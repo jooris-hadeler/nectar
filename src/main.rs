@@ -51,4 +51,6 @@ fn main() {
     let mut stv = SyntaxTreeVisualizer::new(&mut stdout);
     stv.write(&syntax_tree)
         .expect("Failed to write SyntaxTree.");
+    stv.write(&syntax_tree)
+        .expect("Failed to write SyntaxTree.");
 }

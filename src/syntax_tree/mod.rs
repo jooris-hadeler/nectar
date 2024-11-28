@@ -197,6 +197,8 @@ pub struct Expression {
 pub enum ExpressionKind {
     /// Represents an integer literal with its value.
     Integer(u64),
+    /// Represents a string literal with its value.
+    String(String),
     /// Represents an identifier literal.
     Identifier(Identifier),
     /// Represents a binary expression.
